@@ -47,17 +47,27 @@ public class BanqueController {
         public void setToken(String token) { this.token = token; }
     }
 
-    // 1. Point d'accès public d'authentification B2B (CORRIGÉ)
+       // 1. Point d'accès public d'authentification B2B
     @PostMapping("/auth")
     public ResponseEntity<?> authentifierApplication(@RequestBody AuthRequest request) {
-        // CORRECTION : Utilisation de la vraie méthode Java 8 .orElse(null)
-        ApplicationConsommatrice app = appRepository.findByClientId(request.clientId).orElse(null);
+        // Recherche explicite par la clé primaire String
+        ApplicationConsommatrice app = appRepository.findById(request.clientId).orElse(null);
 
-        if (app != null && passwordEncoder.matches(request.clientSecret, app.getClientSecret())) {
+        if (app == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Application introuvable en BDD.");
+        }
+
+        // Nettoyage des chaînes pour éviter les espaces invisibles du copier-coller
+        String secretEnvoye = request.clientSecret.trim();
+        String secretEnBDD = app.getClientSecret().trim();
+
+        // Comparaison finale avec BCrypt
+        if (passwordEncoder.matches(secretEnvoye, secretEnBDD)) {
             String token = jwtUtil.generateToken(app.getClientId(), app.getRole());
             return ResponseEntity.ok(new AuthResponse(token));
         }
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Identifiants de l'application incorrects.");
+        
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Mot de passe invalide pour cette application.");
     }
 
     // 2. Créer un nouveau compte bancaire (Soumis à validation JWT du consommateur)
