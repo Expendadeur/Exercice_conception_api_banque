@@ -47,22 +47,16 @@ public class BanqueController {
         public void setToken(String token) { this.token = token; }
     }
 
-       // 1. Point d'accès public d'authentification B2B
-    @PostMapping("/auth")
+   @PostMapping("/auth")
     public ResponseEntity<?> authentifierApplication(@RequestBody AuthRequest request) {
-        // Recherche explicite par la clé primaire String
         ApplicationConsommatrice app = appRepository.findById(request.clientId).orElse(null);
 
         if (app == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Application introuvable en BDD.");
         }
 
-        // Nettoyage des chaînes pour éviter les espaces invisibles du copier-coller
-        String secretEnvoye = request.clientSecret.trim();
-        String secretEnBDD = app.getClientSecret().trim();
-
-        // Comparaison finale avec BCrypt
-        if (passwordEncoder.matches(secretEnvoye, secretEnBDD)) {
+        // LE RETOUR DU VRAI BCRYPT (Sécurisé et aligné avec votre BDD)
+        if (passwordEncoder.matches(request.clientSecret.trim(), app.getClientSecret().trim())) {
             String token = jwtUtil.generateToken(app.getClientId(), app.getRole());
             return ResponseEntity.ok(new AuthResponse(token));
         }
