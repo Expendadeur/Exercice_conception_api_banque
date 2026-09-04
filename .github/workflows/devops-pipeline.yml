@@ -12,18 +12,19 @@ jobs:
       - name: Recuperation du code source
         uses: actions/checkout@v4
 
+      # CORRECTION DE L'URL OFFICIELLE TRUFFLEHOG
       - name: Scanner les fuites de secrets TruffleHog
-        uses: trufflesecurity/trufflehog-git-action@main
+        uses: trufflesecurity/trufflehog@main
         continue-on-error: true
         with:
-          args: --base=main --head=HEAD
+          base: ""
+          head: "HEAD"
 
       - name: Initialiser l analyse de code CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: 'java'
 
-      # Compilation requise pour l analyse statique CodeQL
       - name: Build de verification
         run: mvn clean package -DskipTests
 
