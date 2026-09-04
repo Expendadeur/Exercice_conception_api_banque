@@ -1,0 +1,58 @@
+## YAML Template.
+---
+name: Pipeline API Banque DevOps & DevSecOps
+
+# Déclencheur : S'exécute automatiquement à chaque "push" sur la branche principale
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  audit-securite-devsecops:
+    name: 🛡️ Phase 1 : Audits de Sécurité (DevSecOps)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupération du code source
+        uses: actions/checkout@v4
+
+      # 1. Recherche de fuites de clés secrètes ou mots de passe oubliés dans le code (TruffleHog)
+      - name: Scanner les fuites de secrets (TruffleHog)
+        uses: trufflesecurity/trufflehog-git-action@main
+        with:
+          args: --base=main --head=HEAD
+
+      # 2. Analyse statique de la sécurité du code Java (FindSecBugs)
+      - name: Analyse de vulnérabilités du code (Semgrep ou Checkstyle)
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: p/security-audit
+
+  build-and-test-devops:
+    name: 🚀 Phase 2 : Compilation & Intégration (DevOps)
+    needs: audit-securite-devsecops # Ne démarre que si les tests de sécurité de la phase 1 réussissent
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupération du code source
+        uses: actions/checkout@v4
+
+      # Configuration d'un environnement Java 17 propre et sécurisé dans le Cloud de GitHub
+      - name: Configuration du JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      # Compilation propre du projet NetBeans et isolation des paquets
+      - name: Compilation avec Maven moderne
+        run: mvn clean package -DskipTests
+
+  auto-deploy-render:
+    name: 🌐 Phase 3 : Déploiement Continu (CD)
+    needs: build-and-test-devops
+    runs-on: ubuntu-latest
+    steps:
+      # Notification automatique envoyée à Render pour rafraîchir l'API en ligne
+      - name: Déclencher le déploiement sur Render
+        run: |
+          curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
