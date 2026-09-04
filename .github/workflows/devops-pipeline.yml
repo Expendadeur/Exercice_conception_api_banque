@@ -1,4 +1,4 @@
-name: Pipeline API Banque DevOps & DevSecOps
+name: Pipeline API Banque DevOps et DevSecOps
 
 on:
   push:
@@ -6,38 +6,36 @@ on:
 
 jobs:
   audit-securite-devsecops:
-    name: 🛡️ Phase 1 : Audits de Sécurité (DevSecOps)
+    name: Phase 1 Audits de Securite DevSecOps
     runs-on: ubuntu-latest
     steps:
-      - name: Récupération du code source
+      - name: Recuperation du code source
         uses: actions/checkout@v4
 
-      # 1. Scanner de secrets (On ajoute un drapeau pour ne pas bloquer le build si d'anciens commits locaux contiennent des chaînes suspectes)
-      - name: Scanner les fuites de secrets (TruffleHog)
+      - name: Scanner les fuites de secrets TruffleHog
         uses: trufflesecurity/trufflehog-git-action@main
-        continue-on-error: true # Permet au pipeline de continuer même si TruffleHog lève un avertissement
+        continue-on-error: true
         with:
           args: --base=main --head=HEAD
 
-      # 2. Analyse statique (On bascule sur l'outil officiel d'audit GitHub de base pour éviter les blocages de licences Semgrep)
-      - name: Initialiser l'analyse de code
+      - name: Initialiser l analyse de code CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: 'java'
 
-      # Compilation requise pour l'analyse statique CodeQL
-      - name: Build de vérification
+      # Compilation requise pour l analyse statique CodeQL
+      - name: Build de verification
         run: mvn clean package -DskipTests
 
-      - name: Effectuer l'analyse CodeQL
+      - name: Effectuer l analyse CodeQL
         uses: github/codeql-action/analyze@v3
 
   build-and-test-devops:
-    name: 🚀 Phase 2 : Compilation & Intégration (DevOps)
+    name: Phase 2 Compilation et Integration DevOps
     needs: audit-securite-devsecops
     runs-on: ubuntu-latest
     steps:
-      - name: Récupération du code source
+      - name: Recuperation du code source
         uses: actions/checkout@v4
 
       - name: Configuration du JDK 17
@@ -47,15 +45,14 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      # CORRECTION : Utilisation stricte de la commande globale Maven installée par le runner GitHub
       - name: Compilation avec Maven moderne
         run: mvn clean package -DskipTests
 
   auto-deploy-render:
-    name: 🌐 Phase 3 : Déploiement Continu (CD)
+    name: Phase 3 Deploiement Continu CD
     needs: build-and-test-devops
     runs-on: ubuntu-latest
     steps:
-      - name: Déclencher le déploiement sur Render
+      - name: Declencher le deploiement sur Render
         run: |
           curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
