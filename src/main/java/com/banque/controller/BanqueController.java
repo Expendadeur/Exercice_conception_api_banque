@@ -1,4 +1,134 @@
+
 package com.banque.controller;
+
+import com.banque.model.Compte;
+import com.banque.model.Operation;
+import com.banque.service.BanqueService;
+import com.banque.service.IaAntiFraudeService;
+import com.banque.security.ApplicationConsommatrice;
+import com.banque.security.ApplicationConsommatriceRepository;
+import com.banque.security.JwtUtil;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import javax.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/banque")
+@CrossOrigin("*")
+public class BanqueController {
+
+    @Autowired
+    private BanqueService banqueService;
+
+    @Autowired
+    private ApplicationConsommatriceRepository appRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    @Autowired
+    private IaAntiFraudeService iaAntiFraudeService; // Injection de l'IA DevSecOps
+
+    public static class AuthRequest {
+        public String clientId;
+        public String clientSecret;
+    }
+
+    public static class AuthResponse {
+        private String token;
+        private String routingZone; // Ajout pour la traçabilité Edge Cloud
+        public AuthResponse(String token, String routingZone) { this.token = token; this.routingZone = routingZone; }
+        public String getToken() { return token; }
+        public String getRoutingZone() { return routingZone; }
+    }
+
+    // 1. Authentification avec routage dynamique Edge Cloud
+    @PostMapping("/auth")
+    public ResponseEntity<?> authentifierApplication(@RequestBody AuthRequest request, HttpServletRequest httpRequest) {
+        ApplicationConsommatrice app = appRepository.findById(request.clientId).orElse(null);
+
+        if (app != null && passwordEncoder.matches(request.clientSecret.trim(), app.getClientSecret().trim())) {
+            
+            // Simulation Edge Cloud : Analyse de l'origine de la requête
+            String edgeHeader = httpRequest.getHeader("X-Edge-Node");
+            String zoneDeRoutage = (edgeHeader != null) ? "EDGE_NODE_BUJUMBURA_LOCAL" : "CLOUD_CENTRAL_RENDER_EUROPE";
+
+            String token = jwtUtil.generateToken(app.getClientId(), app.getRole());
+            return ResponseEntity.ok(new AuthResponse(token, zoneDeRoutage));
+        }
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Identifiants incorrects.");
+    }
+
+    // 2. Effectuer un retrait protégé par l'IA en Edge
+    @PostMapping("/retrait")
+    public ResponseEntity<String> retrait(@RequestParam String id, @RequestParam double montant) {
+        try {
+            String appName = SecurityContextHolder.getContext().getAuthentication().getName();
+
+            // SÉCURITÉ DEVSECOPS PAR IA : Interception comportementale avant traitement
+            boolean estUneFraude = iaAntiFraudeService.analyserSuspicionFraude(appName, "RETRAIT", montant);
+            if (estUneFraude) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body("[BLOCAGE IA] Transaction rejetée automatiquement pour suspicion de fraude ou anomalie de fréquence.");
+            }
+
+            banqueService.retrait(id, montant);
+            return ResponseEntity.ok("Retrait validé par l'application : " + appName);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // --- Les autres méthodes restent identiques à votre version précédente ---
+    @PostMapping("/comptes")
+    public ResponseEntity<?> creerCompte(@RequestBody Compte compte) {
+        try {
+            return ResponseEntity.status(HttpStatus.CREATED).body(banqueService.creerCompte(compte));
+        } catch (Exception e) { return ResponseEntity.badRequest().body(e.getMessage()); }
+    }
+
+    @GetMapping("/comptes/{id}")
+    public ResponseEntity<?> voirSolde(@PathVariable String id) {
+        try { return ResponseEntity.ok(banqueService.obtenirCompte(id)); } 
+        catch (Exception e) { return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage()); }
+    }
+
+    @PostMapping("/depot")
+    public ResponseEntity<String> depot(@RequestParam String id, @RequestParam double montant) {
+        try { banqueService.depot(id, montant); return ResponseEntity.ok("Dépôt réussi"); } 
+        catch (Exception e) { return ResponseEntity.badRequest().body(e.getMessage()); }
+    }
+
+    @PostMapping("/virement")
+    public ResponseEntity<String> virement(@RequestParam String sourceId, @RequestParam String destId, @RequestParam double montant) {
+        try { banqueService.virement(sourceId, destId, montant); return ResponseEntity.ok("Virement réussi"); } 
+        catch (Exception e) { return ResponseEntity.badRequest().body(e.getMessage()); }
+    }
+
+    @PostMapping("/credit")
+    public ResponseEntity<String> configurerCredit(@RequestParam String id, @RequestParam double montantMax) {
+        try { banqueService.accorderCredit(id, montantMax); return ResponseEntity.ok("Crédit mis à jour."); } 
+        catch (Exception e) { return ResponseEntity.badRequest().body(e.getMessage()); }
+    }
+
+    @GetMapping("/comptes/{id}/historique")
+    public ResponseEntity<?> voirHistorique(@PathVariable String id) {
+        try { return ResponseEntity.ok(banqueService.obtenirHistorique(id)); } 
+        catch (Exception e) { return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage()); }
+    }
+}
+
+/*package com.banque.controller;
 
 import com.banque.model.Compte;
 import com.banque.model.Operation;
@@ -143,4 +273,4 @@ public class BanqueController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage());
         }
     }
-}
+}*/
