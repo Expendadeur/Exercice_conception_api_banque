@@ -4,6 +4,12 @@ on:
   push:
     branches: [ "main" ]
 
+# AJOUT DES PERMISSIONS INDISPENSABLES POUR CODEQL (DEVSECOPS)
+permissions:
+  id-token: write
+  contents: read
+  security-events: write
+
 jobs:
   audit-securite-devsecops:
     name: Phase 1 Audits de Securite DevSecOps
@@ -12,7 +18,6 @@ jobs:
       - name: Recuperation du code source
         uses: actions/checkout@v4
 
-      # CORRECTION DE L'URL OFFICIELLE TRUFFLEHOG
       - name: Scanner les fuites de secrets TruffleHog
         uses: trufflesecurity/trufflehog@main
         continue-on-error: true
@@ -25,6 +30,7 @@ jobs:
         with:
           languages: 'java'
 
+      # Compilation requise pour l analyse statique CodeQL
       - name: Build de verification
         run: mvn clean package -DskipTests
 

@@ -82,6 +82,7 @@ public class BanqueService {
         // Sauvegarde d'une seule opération de type VIREMENT liant les deux comptes
         Operation op = new Operation("VIREMENT", montant, new Date(), sourceId, destId);
         operationRepository.save(op);
+        //operationRepository.saveAndFlush(op);
     }
 
     // Configuration ou mise à jour du crédit (découvert autorisé)
