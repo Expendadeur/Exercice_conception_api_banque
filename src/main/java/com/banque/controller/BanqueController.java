@@ -3,6 +3,182 @@ package com.banque.controller;
 
 import com.banque.model.Compte;
 import com.banque.model.Operation;
+import com.banque.model.EdgeSyncQueue;
+import com.banque.service.BanqueService;
+import com.banque.service.IaAntiFraudeService;
+import com.banque.security.ApplicationConsommatrice;
+import com.banque.security.ApplicationConsommatriceRepository;
+import com.banque.security.EdgeSyncQueueRepository;
+import com.banque.security.JwtUtil;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import javax.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/banque")
+@CrossOrigin("*")
+public class BanqueController {
+
+    @Autowired
+    private BanqueService banqueService;
+
+    @Autowired
+    private ApplicationConsommatriceRepository appRepository;
+
+    @Autowired
+    private EdgeSyncQueueRepository edgeQueueRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    @Autowired
+    private IaAntiFraudeService iaAntiFraudeService;
+
+    public static class AuthRequest {
+        public String clientId;
+        public String clientSecret;
+    }
+
+    public static class AuthResponse {
+        private String token;
+        private String routingZone;
+        public AuthResponse(String token, String routingZone) { this.token = token; this.routingZone = routingZone; }
+        public String getToken() { return token; }
+        public String getRoutingZone() { return routingZone; }
+    }
+
+    // Méthode utilitaire interne pour extraire l'IP réelle du consommateur
+    private String extraireIpClient(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isEmpty()) {
+            ip = request.getRemoteAddr();
+        }
+        return ip;
+    }
+
+    // 1. Authentification B2B avec routage géographique IP réel
+    @PostMapping("/auth")
+    public ResponseEntity<?> authentifierApplication(@RequestBody AuthRequest request, HttpServletRequest httpRequest) {
+        ApplicationConsommatrice app = appRepository.findById(request.clientId).orElse(null);
+
+        if (app != null && passwordEncoder.matches(request.clientSecret.trim(), app.getClientSecret().trim())) {
+            String ipClient = extraireIpClient(httpRequest);
+            String zoneDeRoutage = iaAntiFraudeService.geolocaliserIpClient(ipClient);
+
+            String token = jwtUtil.generateToken(app.getClientId(), app.getRole());
+            return ResponseEntity.ok(new AuthResponse(token, zoneDeRoutage));
+        }
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Identifiants incorrects.");
+    }
+
+    // 2. Point d'accès DÉPÔT : Gestion Cloud vs File d'attente Edge Réelle
+    @PostMapping("/depot")
+    public ResponseEntity<String> depot(@RequestParam String id, @RequestParam double montant, HttpServletRequest httpRequest) {
+        try {
+            String appName = SecurityContextHolder.getContext().getAuthentication().getName();
+            String zoneDeRoutage = iaAntiFraudeService.geolocaliserIpClient(extraireIpClient(httpRequest));
+
+            if ("EDGE_NODE_BUJUMBURA_LOCAL".equals(zoneDeRoutage)) {
+                EdgeSyncQueue tx = new EdgeSyncQueue(id, "DEPOT", montant);
+                edgeQueueRepository.save(tx);
+                return ResponseEntity.ok("[EDGE LOCAL] Dépôt de " + montant + "€ mis en file d'attente locale (1ms). Synchronisation Cloud planifiée.");
+            } else {
+                banqueService.depot(id, montant);
+                return ResponseEntity.ok("[CLOUD CENTRAL] Dépôt de " + montant + "€ traité directement en base de données centrale.");
+            }
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // 3. Point d'accès RETRAIT : Sécurisé par IA avec routage Edge Réel
+    @PostMapping("/retrait")
+    public ResponseEntity<String> retrait(@RequestParam String id, @RequestParam double montant, HttpServletRequest httpRequest) {
+        try {
+            String appName = SecurityContextHolder.getContext().getAuthentication().getName();
+
+            // Interception par l'IA de Sécurité comportementale
+            if (iaAntiFraudeService.analyserSuspicionFraude(appName, "RETRAIT", montant)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("[BLOCAGE IA] Transaction rejetée pour suspicion d'anomalie.");
+            }
+
+            String zoneDeRoutage = iaAntiFraudeService.geolocaliserIpClient(extraireIpClient(httpRequest));
+
+            if ("EDGE_NODE_BUJUMBURA_LOCAL".equals(zoneDeRoutage)) {
+                EdgeSyncQueue tx = new EdgeSyncQueue(id, "RETRAIT", montant);
+                edgeQueueRepository.save(tx);
+                return ResponseEntity.ok("[EDGE LOCAL] Retrait de " + montant + "€ mis en file d'attente locale (1ms). Synchronisation Cloud planifiée.");
+            } else {
+                banqueService.retrait(id, montant);
+                return ResponseEntity.ok("[CLOUD CENTRAL] Retrait de " + montant + "€ traité directement en base de données centrale.");
+            }
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // 4. Point d'accès VIREMENT : Découplage de transaction distribuée Edge Réel
+    @PostMapping("/virement")
+    public ResponseEntity<String> virement(@RequestParam String sourceId, @RequestParam String destId, @RequestParam double montant, HttpServletRequest httpRequest) {
+        try {
+            String appName = SecurityContextHolder.getContext().getAuthentication().getName();
+            String zoneDeRoutage = iaAntiFraudeService.geolocaliserIpClient(extraireIpClient(httpRequest));
+
+            if ("EDGE_NODE_BUJUMBURA_LOCAL".equals(zoneDeRoutage)) {
+                // Enregistrement asynchrone du virement avec l'ID du destinataire lié
+                EdgeSyncQueue tx = new EdgeSyncQueue(sourceId, "VIREMENT", montant, destId);
+                edgeQueueRepository.save(tx);
+                return ResponseEntity.ok("[EDGE LOCAL] Ordre de virement de " + montant + "€ enregistré localement en file d'attente (1ms). Sync en cours.");
+            } else {
+                banqueService.virement(sourceId, destId, montant);
+                return ResponseEntity.ok("[CLOUD CENTRAL] Virement exécuté de manière synchrone sur le système central.");
+            }
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // --- Les points d'accès suivants (Consultations et Historiques) restent synchrones par nature ---
+    @PostMapping("/comptes")
+    public ResponseEntity<?> creerCompte(@RequestBody Compte compte) {
+        try { return ResponseEntity.status(HttpStatus.CREATED).body(banqueService.creerCompte(compte)); } 
+        catch (Exception e) { return ResponseEntity.badRequest().body(e.getMessage()); }
+    }
+
+    @GetMapping("/comptes/{id}")
+    public ResponseEntity<?> voirSolde(@PathVariable String id) {
+        try { return ResponseEntity.ok(banqueService.obtenirCompte(id)); } 
+        catch (Exception e) { return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage()); }
+    }
+
+    @PostMapping("/credit")
+    public ResponseEntity<String> configurerCredit(@RequestParam String id, @RequestParam double montantMax) {
+        try { banqueService.accorderCredit(id, montantMax); return ResponseEntity.ok("Crédit mis à jour."); } 
+        catch (Exception e) { return ResponseEntity.badRequest().body(e.getMessage()); }
+    }
+
+    @GetMapping("/comptes/{id}/historique")
+    public ResponseEntity<?> voirHistorique(@PathVariable String id) {
+        try { return ResponseEntity.ok(banqueService.obtenirHistorique(id)); } 
+        catch (Exception e) { return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage()); }
+    }
+}
+
+/*
+package com.banque.controller;
+
+import com.banque.model.Compte;
+import com.banque.model.Operation;
 import com.banque.service.BanqueService;
 import com.banque.service.IaAntiFraudeService;
 import com.banque.security.ApplicationConsommatrice;

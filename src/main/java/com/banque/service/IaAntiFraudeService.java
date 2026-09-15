@@ -10,6 +10,27 @@ public class IaAntiFraudeService {
     // Historique temporaire en mémoire pour analyser les comportements (simule les données d'apprentissage)
     private final Map<String, Integer> requetesParMinute = new HashMap<>();
     private final Map<String, Long> dernierAccesTime = new HashMap<>();
+    
+    
+    /**
+     * GÉOLOCALISATION APPLICATIVE EDGE :
+     * Analyse l'adresse IP pour simuler le routage de l'infrastructure.
+     */
+    public String geolocaliserIpClient(String ipAddress) {
+        // Détection de la machine locale ou de développement (Burundi)
+        if ("127.0.0.1".equals(ipAddress) || "0:0:0:0:0:0:0:1".equals(ipAddress) || ipAddress == null) {
+            return "EDGE_NODE_BUJUMBURA_LOCAL";
+        }
+        
+        // Détection des plages d'IP africaines/burundaises (Simulation)
+        if (ipAddress.startsWith("41.") || ipAddress.startsWith("197.") || ipAddress.startsWith("102.")) {
+            return "EDGE_NODE_BUJUMBURA_LOCAL";
+        }
+        
+        // Par défaut, si l'IP vient d'un autre continent, on route vers le Cloud Central
+        return "CLOUD_CENTRAL_RENDER_EUROPE";
+    }
+
 
     /**
      * Analyse en temps réel par un modèle prédictif IA (Réseau de neurones / Isolation Forest)
