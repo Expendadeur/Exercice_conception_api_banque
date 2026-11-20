@@ -16,4 +16,5 @@ public interface CompteRepository extends JpaRepository<Compte, String> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT c FROM Compte c WHERE c.id = :id")
     Optional<Compte> findByIdForUpdate(@Param("id") String id);
+
 }

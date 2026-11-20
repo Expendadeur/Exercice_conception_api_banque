@@ -2,8 +2,10 @@ package com.banque;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
+@EnableScheduling // requis : active la synchronisation Edge -> Cloud (EdgeCloudSyncService)
 public class BanqueApplication {
 
 	public static void main(String[] args) {
